@@ -1,0 +1,99 @@
+
+'''
+Created on Sep 19, 2017
+@author: anand
+'''
+
+
+import scrapy
+from os import linesep
+import csv
+import json
+import nltk
+import string
+
+class git_blog(scrapy.Spider):
+    name = "github_scrap"
+    jlFileOut=open('Git_IO_Blog.jl','wb')
+    errorFile = open('ERROR.txt','wb')
+    count=0
+    entity_link_dict = {}
+    techDict = set()
+    
+    def start_requests(self):
+        
+        dataFileList = []
+        
+        print 'HERE!!'
+        
+        #prepare technology set for lookup
+        with open('technologyFile.csv','rb') as f:
+            csvR = csv.reader(f, delimiter = ',', quoting = csv.QUOTE_MINIMAL)
+            for row in csvR:
+                self.techDict.add( row[0])
+        
+        with open('blogFile.csv','rb') as f:  #<-------------------------------------------
+            csvR = csv.reader(f, delimiter = ',', quoting = csv.QUOTE_ALL)
+            for row in csvR:
+                if row==[] or '.github.io' not in row[0] :continue
+                dataFileList.append(row)
+            
+            for row in dataFileList:
+                if row == []: continue
+                self.entity_link_dict[ row[0] ] = row[1]
+                yield scrapy.Request(url=row[0], callback=self.parse )
+
+    def parse(self, response):
+        
+        def xpath_extract(response,xpath):
+            try: return response.xpath(xpath).extract()[0].strip().lower()
+            except Exception as _: 
+                return ''
+        jsonObj = {}
+        try:   
+            
+            jsonObj['candidate_name'] = ''
+            jsonObj['candidate_pic_url'] = ''
+            jsonObj['candidate_occoupation']=''
+            jsonObj['candidate_education']=''
+            jsonObj['city_name']=''
+            jsonObj['state']=''
+            jsonObj['country']=''
+            jsonObj['candidate_projects']=''
+            jsonObj['raw_content']='.'
+            
+            jsonObj['candidate_linkedentity'] = self.entity_link_dict[ response.url ]
+            
+            jsonObj['url'] = response.url
+            p= jsonObj['url'].split('.github.io')
+            jsonObj['url']='http://'+p[0].split('/')[-1]+'.github.io'
+            
+            text_blob = nltk.word_tokenize( xpath_extract(response, '//text()'))
+            
+            nltk_tagged = nltk.pos_tag( text_blob )
+            
+            jsonObj['candidate_skills']=[]
+            for word in text_blob:
+                if word in self.techDict:
+                    jsonObj['candidate_skills'].append(word)
+            
+            extract=''
+            for word, tag in nltk_tagged:
+                if tag!='NN':
+                    if extract!='':
+                        jsonObj['candidate_glance'].add( extract[1:])
+                        extract = ''
+                        continue
+                else: 
+                    extract+=' '+word
+            if extract!='': jsonObj['candidate_glance'].add( extract)
+            
+            
+                
+            self.jlFileOut.write(json.dumps(jsonObj)+linesep)
+        except:
+            self.errorFile.write(jsonObj['url']+linesep)
+            print 'ERROR:', jsonObj['url']
+        self.count+=1
+        print 'Done2 count: ', self.count#, ' . Left:',27464-self.count
+        
